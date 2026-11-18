@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import java.net.DatagramSocket
+import java.net.Inet4Address
 
 /**
  * Keeps hold of the camera's Wi-Fi network (which has no internet) and binds the
@@ -39,8 +40,8 @@ class CameraNetwork(context: Context, private val log: (String) -> Unit) {
         }
 
         override fun onLinkPropertiesChanged(network: Network, lp: LinkProperties) {
-            val ip = lp.linkAddresses.joinToString { it.address.hostAddress ?: "?" }
-            val gw = lp.routes.mapNotNull { it.gateway?.hostAddress }.filter { it != "0.0.0.0" && it != "::" }.distinct().joinToString()
+            val ip = lp.linkAddresses.map { it.address }.filterIsInstance<Inet4Address>().joinToString { it.hostAddress ?: "?" }
+            val gw = lp.routes.mapNotNull { it.gateway as? Inet4Address }.map { it.hostAddress }.filter { it != "0.0.0.0" }.distinct().joinToString()
             _description.value = "Wi-Fi lié — IP $ip, passerelle ${gw.ifEmpty { "?" }}"
             log("LinkProperties : IP=$ip passerelle=$gw")
         }

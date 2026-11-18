@@ -68,7 +68,7 @@ fun App(vm: CameraViewModel) {
     }
 
     MaterialTheme(colorScheme = darkColorScheme()) {
-        Surface(Modifier.fillMaxSize(), color = Color.Black) {
+        Surface(Modifier.fillMaxSize(), color = Color.Black, contentColor = Color.White) {
             when {
                 showLogs -> {
                     BackHandler { showLogs = false }

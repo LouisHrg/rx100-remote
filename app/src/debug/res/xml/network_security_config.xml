@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Camera Remote API is plain HTTP. Cleartext is allowed only for the
+     camera addresses below; everything else stays HTTPS-only. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- Usual RX100 III address in "Ctrl with Smartphone" mode -->
+        <domain includeSubdomains="false">192.168.122.1</domain>
+        <!-- Debug builds only: host machine seen from the Android emulator (fake camera server) -->
+        <domain includeSubdomains="false">10.0.2.2</domain>
+        <!-- Address used by some other Sony models -->
+        <domain includeSubdomains="false">10.0.0.1</domain>
+    </domain-config>
+</network-security-config>

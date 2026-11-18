@@ -56,7 +56,7 @@ Pour ajouter une fonction (ISO, vitesse, EV, vidéo, touch AF…), il suffit d'a
 ## Limites connues
 
 - Non testé sur un vrai RX100 III au moment de l'écriture (voir la checklist ci-dessous).
-- HTTP en clair autorisé uniquement vers `192.168.122.1` et `10.0.0.1` (`res/xml/network_security_config.xml`). Une URL manuelle vers une autre IP sera refusée : ajoute l'IP dans ce fichier.
+- HTTP en clair autorisé uniquement vers `192.168.122.1` et `10.0.0.1` (`res/xml/network_security_config.xml`), plus `10.0.2.2` (machine hôte vue depuis l'émulateur) dans les builds debug. Une URL manuelle vers une autre IP sera refusée : ajoute l'IP dans ce fichier.
 - Si le téléphone est connecté à un autre Wi-Fi (box), l'appli s'y liera : l'écran de connexion affiche l'IP et la passerelle pour vérifier (`192.168.122.x` = appareil).
 - Zoom par crans (`actZoom` `1shot`), pas de zoom continu.
 - Pas de `getEvent` : la liste des API est rafraîchie après chaque action, pas en continu.
