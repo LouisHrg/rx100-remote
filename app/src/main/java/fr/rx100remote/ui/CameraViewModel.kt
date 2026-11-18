@@ -55,6 +55,8 @@ data class UiState(
     val camera: CameraEvent = CameraEvent(),
     /** elapsedRealtime when the current movie recording started, null when not recording. */
     val recStartedAt: Long? = null,
+    /** Why storage/status info is missing, shown in the live view. Null when getEvent works. */
+    val eventStatus: String? = "Lecture de la carte…",
 ) {
     val movieMode get() = camera.shootMode == "movie"
     val recording get() = recStartedAt != null
@@ -101,6 +103,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun toggleMirror() = _state.update { it.copy(mirror = !it.mirror) }
     fun toggleStats() = _state.update { it.copy(showStats = !it.showStats) }
     fun toastShown() = _state.update { it.copy(toast = null) }
+    fun notify(message: String) = _state.update { it.copy(toast = message) }
     fun clearLogs() { _logs.value = emptyList() }
 
     fun connect(useManual: Boolean = false) {
@@ -128,7 +131,10 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun runSession(useManual: Boolean) {
-        _state.update { it.copy(phase = Phase.Wifi, message = "Attente du Wi-Fi de l'appareil…") }
+        _state.update {
+            it.copy(phase = Phase.Wifi, message = "Attente du Wi-Fi de l'appareil…", apis = emptySet(), endpoint = null,
+                camera = CameraEvent(), recStartedAt = null, eventStatus = "Lecture de la carte…")
+        }
         network.start()
         if (network.await(10_000) == null) {
             throw IllegalStateException("Pas de réseau Wi-Fi. Connecte le téléphone au Wi-Fi DIRECT-xxxx:DSC-RX100M3 puis réessaie.")
@@ -168,31 +174,34 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Long-polls getEvent to follow storage, camera status and shoot mode.
+     * Polls getEvent(false) to follow storage, camera status and shoot mode.
+     * Short polling rather than long polling: it never holds a second HTTP connection
+     * open next to the liveview stream, which older bodies handle poorly.
      * Failures here never end the session: liveview keeps running without the info.
      */
     private suspend fun eventLoop(camera: CameraApi) {
         if ("getEvent" !in _state.value.apis) {
             log("getEvent non annoncé : pas d'infos stockage / statut")
+            _state.update { it.copy(eventStatus = "Infos carte non fournies par l'appareil") }
             return
         }
-        // ponytail: a blocking OkHttp call is not interrupted by cancellation; it ends at the read timeout.
-        val poller = CameraApi(http(EVENT_TIMEOUT_SEC), camera.endpoints, ::log)
-        var longPoll = false
+        var lastRaw: String? = null
         while (currentCoroutineContext().isActive) {
             try {
-                applyEvent(CameraEvent.parse(poller.call("getEvent", JSONArray(listOf(longPoll)))))
-                longPoll = true
+                val result = camera.call("getEvent", JSONArray(listOf(false)), quiet = true)
+                val raw = result.toString()
+                // Log only changes, otherwise polling floods the log screen.
+                if (raw != lastRaw) { log("getEvent <- $raw"); lastRaw = raw }
+                applyEvent(CameraEvent.parse(result))
+                _state.update { it.copy(eventStatus = null) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                // 40402 = a previous long poll is still pending on the camera side.
-                if (e !is CameraApiException || e.code != 40402) {
-                    log("getEvent erreur : ${e.message}")
-                    longPoll = false
-                }
+                log("getEvent erreur : ${e.message}")
+                _state.update { it.copy(eventStatus = "getEvent : ${explain(e)}") }
                 delay(2000)
             }
+            delay(EVENT_PERIOD_MS)
         }
     }
 
@@ -377,6 +386,6 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     companion object {
         private const val MAX_LOGS = 1000
         private const val MAX_RETRIES = 5
-        private const val EVENT_TIMEOUT_SEC = 70L
+        private const val EVENT_PERIOD_MS = 1000L
     }
 }

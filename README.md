@@ -14,9 +14,11 @@ Elle utilise la **Sony Camera Remote API** (HTTP + JSON-RPC), implémentée à p
    - cherche l'appareil en SSDP (`urn:schemas-sony-com:service:ScalarWebAPI:1`) ;
    - à défaut, utilise l'URL de repli (`http://192.168.122.1:8080/sony`, modifiable à l'écran) ;
    - appelle `getAvailableApiList`, `startRecMode` si annoncé, `setShootMode still` si annoncé, puis `startLiveview` ;
-   - suit `getEvent` en long-polling (statut, mode, stockage, liste des API).
+   - interroge `getEvent` chaque seconde (statut, mode, stockage, liste des API).
 
-Dans le live view : **● / ■** déclenche (photo) ou lance / arrête l'enregistrement (vidéo, bouton rouge), **→ Vidéo / → Photo** bascule le mode de prise de vue (`setShootMode`), le bandeau en haut affiche les photos ou le temps vidéo restants sur la carte et le chrono **● REC** pendant un enregistrement, **Zoom + / −** apparaissent si `actZoom` est annoncé, **Miroir** inverse l'image horizontalement, **Stats** affiche FPS / temps de décodage / âge de l'image / nombre de resynchronisations, **Logs** montre toutes les requêtes et réponses JSON brutes (bouton **Copier** pour me les renvoyer).
+L'interface suit Material 3 (Material You : couleurs tirées du fond d'écran sur Android 12+, thème clair/sombre du système ; la visée est toujours sombre).
+
+Dans le live view : le déclencheur prend une photo (disque blanc) ou lance / arrête l'enregistrement (disque rouge / carré rouge), le sélecteur **Photo | Vidéo** change le mode de prise de vue (`setShootMode`), les puces en haut affichent le chrono **REC**, les photos ou le temps vidéo restants sur la carte (ou la raison pour laquelle l'info manque), **Zoom + / −** apparaissent si `actZoom` est annoncé, l'icône miroir inverse l'image horizontalement, l'icône compteur affiche FPS / temps de décodage / âge de l'image / nombre de resynchronisations, l'icône bug ouvre les logs, avec toutes les requêtes et réponses JSON brutes (icône copier pour me les renvoyer).
 
 ## Installer sans Android Studio
 

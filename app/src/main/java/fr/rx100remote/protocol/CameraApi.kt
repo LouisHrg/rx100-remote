@@ -22,14 +22,15 @@ class CameraApi(
 ) {
     private val ids = AtomicInteger(1)
 
-    fun call(method: String, params: JSONArray = JSONArray(), service: String = "camera", version: String = "1.0"): JSONArray {
+    /** [quiet] skips the request/response log lines (for polling; the caller logs changes). */
+    fun call(method: String, params: JSONArray = JSONArray(), service: String = "camera", version: String = "1.0", quiet: Boolean = false): JSONArray {
         val url = endpoints[service] ?: throw CameraApiException(-1, "service '$service' absent de la description")
         val body = buildRequest(method, params, ids.getAndIncrement(), version)
-        log("-> $url\n$body")
+        if (!quiet) log("-> $url\n$body")
         val request = Request.Builder().url(url).post(body.toRequestBody(JSON)).build()
         val text = http.newCall(request).execute().use { resp ->
             val t = resp.body.string()
-            log("<- HTTP ${resp.code}\n$t")
+            if (!quiet || !resp.isSuccessful) log("<- HTTP ${resp.code}\n$t")
             if (!resp.isSuccessful) throw CameraApiException(resp.code, "HTTP ${resp.code}")
             t
         }
