@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import fr.rx100remote.net.CameraNetwork
 import fr.rx100remote.protocol.CameraApi
 import fr.rx100remote.protocol.CameraApiException
+import fr.rx100remote.protocol.CameraEvent
 import fr.rx100remote.protocol.LiveviewParser
 import fr.rx100remote.protocol.Ssdp
 import kotlinx.coroutines.CancellationException
@@ -16,6 +17,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -48,7 +51,14 @@ data class UiState(
     val resyncs: Int = 0,
     val busy: Boolean = false,
     val toast: String? = null,
-)
+    /** Merged getEvent state: shoot mode, camera status, storage. */
+    val camera: CameraEvent = CameraEvent(),
+    /** elapsedRealtime when the current movie recording started, null when not recording. */
+    val recStartedAt: Long? = null,
+) {
+    val movieMode get() = camera.shootMode == "movie"
+    val recording get() = recStartedAt != null
+}
 
 const val DEFAULT_BASE = "http://192.168.122.1:8080/sony"
 
@@ -145,12 +155,55 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         }
         if ("setShootMode" in apis) {
             runCatching { camera.call("setShootMode", JSONArray(listOf("still"))) }
+                .onSuccess { applyEvent(CameraEvent(shootMode = "still")) }
                 .onFailure { log("setShootMode ignoré : ${it.message}") }
             apis = camera.availableApis(); publishApis(apis)
         }
         if ("startLiveview" !in apis) throw CameraApiException(-1, "startLiveview non annoncé par l'appareil")
 
-        streamLoop(camera)
+        coroutineScope {
+            launch { eventLoop(camera) }
+            streamLoop(camera)
+        }
+    }
+
+    /**
+     * Long-polls getEvent to follow storage, camera status and shoot mode.
+     * Failures here never end the session: liveview keeps running without the info.
+     */
+    private suspend fun eventLoop(camera: CameraApi) {
+        if ("getEvent" !in _state.value.apis) {
+            log("getEvent non annoncé : pas d'infos stockage / statut")
+            return
+        }
+        // ponytail: a blocking OkHttp call is not interrupted by cancellation; it ends at the read timeout.
+        val poller = CameraApi(http(EVENT_TIMEOUT_SEC), camera.endpoints, ::log)
+        var longPoll = false
+        while (currentCoroutineContext().isActive) {
+            try {
+                applyEvent(CameraEvent.parse(poller.call("getEvent", JSONArray(listOf(longPoll)))))
+                longPoll = true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // 40402 = a previous long poll is still pending on the camera side.
+                if (e !is CameraApiException || e.code != 40402) {
+                    log("getEvent erreur : ${e.message}")
+                    longPoll = false
+                }
+                delay(2000)
+            }
+        }
+    }
+
+    private fun applyEvent(ev: CameraEvent) = _state.update { s ->
+        val cam = s.camera.merge(ev)
+        val rec = cam.cameraStatus == "MovieRecording"
+        s.copy(
+            camera = cam,
+            apis = ev.apis ?: s.apis,
+            recStartedAt = if (rec) s.recStartedAt ?: SystemClock.elapsedRealtime() else null,
+        )
     }
 
     private fun discover(): Map<String, String> {
@@ -237,7 +290,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun takePicture() = action("actTakePicture") { camera ->
+    private fun takePicture() = action("actTakePicture") { camera ->
         val result = try {
             camera.call("actTakePicture")
         } catch (e: CameraApiException) {
@@ -247,6 +300,31 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         }
         val url = result.optJSONArray(0)?.optString(0)
         "Photo prise" + (url?.let { "\n$it" } ?: "")
+    }
+
+    /** Shutter button: picture in still mode, start/stop recording in movie mode. */
+    fun shutter() {
+        val s = _state.value
+        when {
+            !s.movieMode -> takePicture()
+            s.recording -> action("stopMovieRec") { camera ->
+                camera.call("stopMovieRec")
+                applyEvent(CameraEvent(cameraStatus = "IDLE"))
+                "Enregistrement arrêté"
+            }
+            else -> action("startMovieRec") { camera ->
+                camera.call("startMovieRec")
+                // Optimistic, so the timer also runs on models without getEvent.
+                applyEvent(CameraEvent(cameraStatus = "MovieRecording"))
+                null
+            }
+        }
+    }
+
+    fun setShootMode(mode: String) = action("setShootMode") { camera ->
+        camera.call("setShootMode", JSONArray(listOf(mode)))
+        applyEvent(CameraEvent(shootMode = mode))
+        null
     }
 
     fun zoom(direction: String) = action("actZoom") { camera ->
@@ -299,5 +377,6 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     companion object {
         private const val MAX_LOGS = 1000
         private const val MAX_RETRIES = 5
+        private const val EVENT_TIMEOUT_SEC = 70L
     }
 }

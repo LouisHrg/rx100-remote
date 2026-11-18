@@ -13,9 +13,10 @@ Elle utilise la **Sony Camera Remote API** (HTTP + JSON-RPC), implémentée à p
    - lie son process au réseau Wi-Fi (requête réseau Wi-Fi *sans* internet + `bindProcessToNetwork`) ;
    - cherche l'appareil en SSDP (`urn:schemas-sony-com:service:ScalarWebAPI:1`) ;
    - à défaut, utilise l'URL de repli (`http://192.168.122.1:8080/sony`, modifiable à l'écran) ;
-   - appelle `getAvailableApiList`, `startRecMode` si annoncé, `setShootMode still` si annoncé, puis `startLiveview`.
+   - appelle `getAvailableApiList`, `startRecMode` si annoncé, `setShootMode still` si annoncé, puis `startLiveview` ;
+   - suit `getEvent` en long-polling (statut, mode, stockage, liste des API).
 
-Dans le live view : **●** déclenche, **Zoom + / −** apparaissent si `actZoom` est annoncé, **Miroir** inverse l'image horizontalement, **Stats** affiche FPS / temps de décodage / âge de l'image / nombre de resynchronisations, **Logs** montre toutes les requêtes et réponses JSON brutes (bouton **Copier** pour me les renvoyer).
+Dans le live view : **● / ■** déclenche (photo) ou lance / arrête l'enregistrement (vidéo, bouton rouge), **→ Vidéo / → Photo** bascule le mode de prise de vue (`setShootMode`), le bandeau en haut affiche les photos ou le temps vidéo restants sur la carte et le chrono **● REC** pendant un enregistrement, **Zoom + / −** apparaissent si `actZoom` est annoncé, **Miroir** inverse l'image horizontalement, **Stats** affiche FPS / temps de décodage / âge de l'image / nombre de resynchronisations, **Logs** montre toutes les requêtes et réponses JSON brutes (bouton **Copier** pour me les renvoyer).
 
 ## Installer sans Android Studio
 
@@ -59,9 +60,10 @@ Pour ajouter une fonction (ISO, vitesse, EV, vidéo, touch AF…), il suffit d'a
 - HTTP en clair autorisé uniquement vers `192.168.122.1` et `10.0.0.1` (`res/xml/network_security_config.xml`), plus `10.0.2.2` (machine hôte vue depuis l'émulateur) dans les builds debug. Une URL manuelle vers une autre IP sera refusée : ajoute l'IP dans ce fichier.
 - Si le téléphone est connecté à un autre Wi-Fi (box), l'appli s'y liera : l'écran de connexion affiche l'IP et la passerelle pour vérifier (`192.168.122.x` = appareil).
 - Zoom par crans (`actZoom` `1shot`), pas de zoom continu.
-- Pas de `getEvent` : la liste des API est rafraîchie après chaque action, pas en continu.
+- Le chrono REC est mesuré côté téléphone à partir du passage en `MovieRecording` : si l'appli se connecte pendant un enregistrement déjà lancé, il part de zéro.
+- Le temps vidéo restant (`recordableTime`) est donné en minutes par l'appareil.
 - La « latence » affichée est mesurée côté téléphone (réception → affichage) ; la latence capteur → téléphone n'est pas mesurable sans horloge commune.
-- Pas de réglages (ISO, vitesse, ouverture, EV), vidéo, touch focus, grille ni transfert de photos pour l'instant.
+- Pas de réglages (ISO, vitesse, ouverture, EV), touch focus, grille ni transfert de photos pour l'instant.
 
 ## Checklist de test sur l'appareil
 
@@ -74,6 +76,8 @@ Après chaque point, en cas de souci : **Logs › Copier** et colle le résultat
 5. Live view : image fluide, compteur `resync` à 0 ou presque (Stats). Noter le FPS.
 6. Déclencheur : toast « Photo prise », photo bien enregistrée sur la carte.
 7. Zoom + / − : l'objectif bouge.
+7b. Bandeau : « N photos restantes » cohérent avec l'écran de l'appareil, décrémente après une photo.
+7c. **→ Vidéo** : le bandeau passe au temps restant ; **●** rouge lance l'enregistrement (chrono REC), **■** l'arrête, le fichier est sur la carte. Le live view continue-t-il pendant et après le changement de mode ?
 8. Rotation portrait/paysage : le live view continue sans reconnexion.
 9. Reconnexion : éteindre puis rallumer le Wi-Fi de l'appareil (ou s'éloigner) — message « Flux coupé, reconnexion… », puis reprise ou message d'erreur clair.
 10. Écran reste allumé pendant le live view ; barres système masquées (balayer pour les afficher).

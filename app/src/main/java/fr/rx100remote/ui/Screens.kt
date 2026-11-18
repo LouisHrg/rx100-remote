@@ -2,6 +2,7 @@ package fr.rx100remote.ui
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
@@ -25,6 +26,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
@@ -37,6 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -53,6 +56,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.delay
 
 @Composable
 fun App(vm: CameraViewModel) {
@@ -145,10 +149,19 @@ private fun LiveScreen(vm: CameraViewModel, state: UiState, onLogs: () -> Unit) 
         }
         Column(Modifier.align(Alignment.TopStart).safeDrawingPadding().padding(8.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                SmallButton("Logs", onLogs)
-                SmallButton(if (state.mirror) "Miroir ✓" else "Miroir", vm::toggleMirror)
-                SmallButton("Stats", vm::toggleStats)
-                SmallButton("Quitter", vm::disconnect)
+                SmallButton("Logs", onClick = onLogs)
+                SmallButton(if (state.mirror) "Miroir ✓" else "Miroir", onClick = vm::toggleMirror)
+                SmallButton("Stats", onClick = vm::toggleStats)
+                SmallButton("Quitter", onClick = vm::disconnect)
+            }
+            val storage = storageText(state)
+            if (storage != null || state.recording) Row(
+                Modifier.padding(top = 6.dp).background(Color(0x88000000)).padding(horizontal = 8.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                state.recStartedAt?.let { RecTimer(it) }
+                storage?.let { Text(it, fontSize = 13.sp) }
             }
             if (state.showStats) {
                 Text(
@@ -163,22 +176,60 @@ private fun LiveScreen(vm: CameraViewModel, state: UiState, onLogs: () -> Unit) 
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            val modes = state.camera.shootModeCandidates ?: listOf("still", "movie")
+            // Kept visible (disabled) while recording so the shutter does not move under the finger.
+            if (("setShootMode" in state.apis || state.recording) && "movie" in modes) {
+                SmallButton(if (state.movieMode) "→ Photo" else "→ Vidéo", enabled = !state.recording) {
+                    vm.setShootMode(if (state.movieMode) "still" else "movie")
+                }
+            }
             val zoom = "actZoom" in state.apis
             if (zoom) SmallButton("Zoom +") { vm.zoom("in") }
             Button(
-                onClick = vm::takePicture,
+                onClick = vm::shutter,
                 enabled = !state.busy,
                 modifier = Modifier.size(72.dp).border(4.dp, Color.White, CircleShape),
                 shape = CircleShape,
-            ) { Text("●", fontSize = 24.sp) }
+                colors = if (state.movieMode) ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F), contentColor = Color.White)
+                else ButtonDefaults.buttonColors(),
+            ) { Text(if (state.recording) "■" else "●", fontSize = 24.sp) }
             if (zoom) SmallButton("Zoom −") { vm.zoom("out") }
         }
     }
 }
 
+/** Remaining capacity for the current mode, from getEvent's storageInformation. */
+private fun storageText(state: UiState): String? {
+    val cam = state.camera
+    if (cam.hasStorage == false) return "Pas de carte"
+    return if (state.movieMode) {
+        val min = cam.recordableMinutes ?: return null
+        if (min < 0) "Vidéo : temps restant ?" else "Vidéo : %d h %02d min restantes".format(min / 60, min % 60)
+    } else {
+        val n = cam.recordableImages ?: return null
+        if (n < 0) "Photos restantes : ?" else "$n photos restantes"
+    }
+}
+
 @Composable
-private fun SmallButton(text: String, onClick: () -> Unit) {
-    FilledTonalButton(onClick = onClick) { Text(text, fontSize = 13.sp) }
+private fun RecTimer(startedAt: Long) {
+    var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    LaunchedEffect(startedAt) {
+        while (true) {
+            now = SystemClock.elapsedRealtime()
+            delay(250)
+        }
+    }
+    val sec = ((now - startedAt) / 1000).coerceAtLeast(0)
+    Text(
+        "● REC %02d:%02d:%02d".format(sec / 3600, sec / 60 % 60, sec % 60),
+        color = Color(0xFFFF5252), fontFamily = FontFamily.Monospace, fontSize = 14.sp,
+    )
+}
+
+@Composable
+private fun SmallButton(text: String, enabled: Boolean = true, onClick: () -> Unit) {
+    FilledTonalButton(onClick = onClick, enabled = enabled) { Text(text, fontSize = 13.sp) }
 }
 
 @Composable
