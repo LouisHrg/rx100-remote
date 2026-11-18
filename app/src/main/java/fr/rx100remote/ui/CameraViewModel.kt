@@ -185,17 +185,37 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             _state.update { it.copy(eventStatus = "Infos carte non fournies par l'appareil") }
             return
         }
+        // Newer getEvent versions carry more fields (storage info is missing from some
+        // models' 1.0 answer). Start high and step down when the camera refuses the version.
+        val versions = ArrayDeque(listOf("1.2", "1.1", "1.0"))
         var lastRaw: String? = null
         while (currentCoroutineContext().isActive) {
+            val version = versions.first()
             try {
-                val result = camera.call("getEvent", JSONArray(listOf(false)), quiet = true)
+                val result = camera.call("getEvent", JSONArray(listOf(false)), version = version, quiet = true)
                 val raw = result.toString()
+                val ev = CameraEvent.parse(result)
                 // Log only changes, otherwise polling floods the log screen.
-                if (raw != lastRaw) { log("getEvent <- $raw"); lastRaw = raw }
-                applyEvent(CameraEvent.parse(result))
+                if (raw != lastRaw) {
+                    lastRaw = raw
+                    log("getEvent v$version <- $raw")
+                    log("getEvent v$version lu : mode=${ev.shootMode} candidats=${ev.shootModeCandidates} statut=${ev.cameraStatus} " +
+                        "carte=${ev.hasStorage} photos=${ev.recordableImages} minutes=${ev.recordableMinutes} " +
+                        "setShootMode=${ev.apis?.contains("setShootMode")}")
+                }
+                applyEvent(ev)
                 _state.update { it.copy(eventStatus = null) }
             } catch (e: CancellationException) {
                 throw e
+            } catch (e: CameraApiException) {
+                if (versions.size > 1) {
+                    log("getEvent v$version refusé (${e.message}), essai v${versions[1]}")
+                    versions.removeFirst()
+                    continue
+                }
+                log("getEvent erreur : ${e.message}")
+                _state.update { it.copy(eventStatus = "getEvent : ${explain(e)}") }
+                delay(2000)
             } catch (e: Exception) {
                 log("getEvent erreur : ${e.message}")
                 _state.update { it.copy(eventStatus = "getEvent : ${explain(e)}") }
@@ -330,7 +350,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun setShootMode(mode: String) = action("setShootMode") { camera ->
+    fun setShootMode(mode: String) = action("setShootMode", requireListed = false) { camera ->
         camera.call("setShootMode", JSONArray(listOf(mode)))
         applyEvent(CameraEvent(shootMode = mode))
         null
@@ -341,9 +361,9 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         null
     }
 
-    private fun action(method: String, block: (CameraApi) -> String?) {
+    private fun action(method: String, requireListed: Boolean = true, block: (CameraApi) -> String?) {
         val camera = api ?: return
-        if (method !in _state.value.apis) {
+        if (requireListed && method !in _state.value.apis) {
             _state.update { it.copy(toast = "$method non disponible actuellement") }
             return
         }

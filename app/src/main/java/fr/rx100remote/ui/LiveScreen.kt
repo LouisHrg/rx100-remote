@@ -202,6 +202,7 @@ private fun TopBar(vm: CameraViewModel, state: UiState, onLogs: () -> Unit, modi
             when {
                 storage != null -> InfoChip(Icons.Outlined.SdCard, storage)
                 state.eventStatus != null -> InfoChip(Icons.Outlined.Info, state.eventStatus)
+                else -> InfoChip(Icons.Outlined.Info, "Capacité de la carte non fournie par l'appareil")
             }
         }
         if (state.showStats) {
@@ -269,16 +270,15 @@ private fun storageText(state: UiState): String? {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ModeSelector(vm: CameraViewModel, state: UiState) {
-    val modes = state.camera.shootModeCandidates ?: listOf("still", "movie")
-    val available = "movie" in modes && ("setShootMode" in state.apis || state.recording)
-    // Always laid out, so the shutter never moves under the finger; disabled while recording.
-    SingleChoiceSegmentedButtonRow(Modifier.alpha(if (available) 1f else 0f)) {
+    // Always shown: the camera's own candidate/API lists vary with the current mode, so we let
+    // setShootMode answer instead (a refusal shows up as a message). Disabled while recording.
+    SingleChoiceSegmentedButtonRow {
         listOf("still" to ("Photo" to Icons.Outlined.PhotoCamera), "movie" to ("Vidéo" to Icons.Outlined.Videocam))
             .forEachIndexed { i, (mode, ui) ->
                 SegmentedButton(
                     selected = state.movieMode == (mode == "movie"),
                     onClick = { if (state.movieMode != (mode == "movie")) vm.setShootMode(mode) },
-                    enabled = available && !state.recording && !state.busy,
+                    enabled = !state.recording && !state.busy,
                     shape = SegmentedButtonDefaults.itemShape(i, 2),
                     icon = { Icon(ui.second, contentDescription = null, Modifier.size(18.dp)) },
                     colors = SegmentedButtonDefaults.colors(inactiveContainerColor = Scrim),
